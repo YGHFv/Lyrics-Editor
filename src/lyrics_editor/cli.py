@@ -9,7 +9,7 @@ from rich.table import Table
 from lyrics_editor.align.asr import FasterWhisperTranscriber
 from lyrics_editor.align.timeline import align_lyrics_to_transcript
 from lyrics_editor.audio import iter_audio_files, read_metadata
-from lyrics_editor.lrc import lyrics_from_lrc, to_lrc
+from lyrics_editor.lrc import lyrics_from_lrc, lyrics_preview, to_lrc
 from lyrics_editor.matcher import rank_candidates
 from lyrics_editor.providers.lrclib import LrclibProvider
 
@@ -32,11 +32,11 @@ def inspect(path: Path) -> None:
 
 
 @app.command()
-def search(path: Path, limit: int = 10) -> None:
+def search(path: Path, limit: int = 10, preview_lines: int = 3) -> None:
     """Search online lyrics for one local audio file."""
     track = read_metadata(path)
     candidates = rank_candidates(track, LrclibProvider().search(track, limit=limit))
-    _print_candidates(candidates)
+    _print_candidates(candidates, preview_lines=preview_lines)
 
 
 @app.command()
@@ -57,6 +57,43 @@ def match(path: Path, output: Path | None = None, limit: int = 10) -> None:
     target = output or path.with_suffix(".lrc")
     target.write_text(to_lrc(best.lyrics), encoding="utf-8")
     console.print(f"[green]Saved[/] {target}  score={best.score}")
+
+
+@app.command()
+def choose(
+    path: Path,
+    output: Path | None = None,
+    limit: int = 10,
+    preview_lines: int = 3,
+    index: int | None = None,
+) -> None:
+    """Preview candidates and let you pick one manually."""
+    track = read_metadata(path)
+    candidates = rank_candidates(track, LrclibProvider().search(track, limit=limit))
+    if not candidates:
+        console.print(f"[yellow]No lyrics found:[/] {path}")
+        raise typer.Exit(code=1)
+
+    _print_candidates(candidates, preview_lines=preview_lines)
+    chosen_index = index
+    if chosen_index is None:
+        chosen_index = typer.prompt("Choose candidate index", type=int, default=0)
+
+    if chosen_index < 0 or chosen_index >= len(candidates):
+        console.print(f"[red]Invalid candidate index:[/] {chosen_index}")
+        raise typer.Exit(code=1)
+
+    chosen = candidates[chosen_index]
+    if not chosen.lyrics.lines and not chosen.lyrics.synced_text:
+        console.print("[yellow]Chosen candidate has no synced lyrics. Nothing saved.[/]")
+        console.print(f"Preview: {lyrics_preview(chosen.lyrics, max_lines=preview_lines)}")
+        raise typer.Exit(code=1)
+
+    target = output or path.with_suffix(".lrc")
+    target.write_text(to_lrc(chosen.lyrics), encoding="utf-8")
+    console.print(
+        f"[green]Saved[/] {target}  score={chosen.score}  choice={chosen_index}"
+    )
 
 
 @app.command()
@@ -107,19 +144,23 @@ def repair(
 
 def _print_candidates(candidates) -> None:
     table = Table(title="Lyrics candidates")
+    table.add_column("#", justify="right")
     table.add_column("Score", justify="right")
     table.add_column("Source")
     table.add_column("Title")
     table.add_column("Artist")
     table.add_column("Synced")
+    table.add_column("Preview")
     table.add_column("Reasons")
-    for candidate in candidates:
+    for index, candidate in enumerate(candidates):
         table.add_row(
+            str(index),
             f"{candidate.score:.2f}",
             candidate.lyrics.source,
             candidate.lyrics.title,
             candidate.lyrics.artist,
             "yes" if candidate.lyrics.lines else "no",
+            lyrics_preview(candidate.lyrics),
             ", ".join(candidate.reasons),
         )
     console.print(table)

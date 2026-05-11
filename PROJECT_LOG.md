@@ -100,3 +100,21 @@ Verification:
 - Git global user name and email are configured.
 - `gh auth status` reported that no GitHub host is logged in.
 - `git commit -m "Initial scaffold for lyrics editor"` created commit `a12bc7d`.
+
+### 2026-05-11 - Add manual candidate selection and lyric preview
+
+Improved the lyrics matching workflow so candidates can be previewed and chosen manually.
+
+Changed:
+
+- Added `lyrics_preview()` to render a short preview from synced or plain lyrics text.
+- Added a `choose` CLI command to list candidates, preview them, and save a manually selected result.
+- Extended `search` output with a preview column.
+- Preserved plain text alongside synced lyrics in the LRCLIB provider so previews work for both cases.
+- Added tests for preview formatting.
+
+Verification:
+
+- `python -m pytest -q` passed with 8 tests.
+- `python -m ruff check .` passed.
+- `lyrics-editor --help` showed the new `choose` command.

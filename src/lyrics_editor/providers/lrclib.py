@@ -42,16 +42,19 @@ class LrclibProvider:
                 text=synced or "",
                 provider_id=str(item.get("id")) if item.get("id") is not None else None,
             )
-            if plain and not synced:
+            if plain:
                 lyrics = Lyrics(
                     source=lyrics.source,
                     title=lyrics.title,
                     artist=lyrics.artist,
                     album=lyrics.album,
                     duration=lyrics.duration,
+                    synced_text=lyrics.synced_text,
                     plain_text=plain,
+                    lines=lyrics.lines,
+                    words=lyrics.words,
                     provider_id=lyrics.provider_id,
+                    metadata=lyrics.metadata,
                 )
             results.append(lyrics)
         return results
-

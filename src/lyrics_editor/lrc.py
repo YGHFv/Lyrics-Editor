@@ -47,6 +47,18 @@ def lyrics_from_lrc(
     )
 
 
+def lyrics_preview(lyrics: Lyrics, max_lines: int = 3, max_chars: int = 120) -> str:
+    source_text = _preview_source_text(lyrics)
+    if not source_text:
+        return ""
+
+    lines = [line.strip() for line in source_text.splitlines() if line.strip()]
+    preview = " | ".join(lines[:max_lines])
+    if len(preview) > max_chars:
+        return preview[: max(0, max_chars - 1)].rstrip() + "…"
+    return preview
+
+
 def to_lrc(lyrics: Lyrics) -> str:
     if lyrics.synced_text and not lyrics.lines:
         return lyrics.synced_text.strip() + "\n"
@@ -81,3 +93,12 @@ def _seconds_to_tag(seconds: float) -> str:
         hundredths = 0
     return f"[{minutes:02d}:{whole_seconds:02d}.{hundredths:02d}]"
 
+
+def _preview_source_text(lyrics: Lyrics) -> str:
+    if lyrics.synced_text:
+        return lyrics.synced_text
+    if lyrics.plain_text:
+        return lyrics.plain_text
+    if lyrics.lines:
+        return "\n".join(line.text for line in lyrics.lines)
+    return ""
