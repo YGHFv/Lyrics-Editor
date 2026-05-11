@@ -86,6 +86,9 @@ Changed:
 - Verified Git is available locally.
 - Checked GitHub CLI authentication status.
 - Confirmed GitHub CLI is installed at `C:\Program Files\GitHub CLI\gh.exe`.
+- Initialized the local Git repository.
+- Renamed the default branch to `main`.
+- Created the initial local commit.
 
 Notes:
 
@@ -96,3 +99,4 @@ Verification:
 - `git --version` returned `2.49.0.windows.1`.
 - Git global user name and email are configured.
 - `gh auth status` reported that no GitHub host is logged in.
+- `git commit -m "Initial scaffold for lyrics editor"` created commit `a12bc7d`.
