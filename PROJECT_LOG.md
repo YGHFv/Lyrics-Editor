@@ -23,10 +23,11 @@ Lyrics Editor is a local music lyrics toolkit. It scans local audio files, reads
 - `src/lyrics_editor/lrc.py`: LRC parsing and serialization.
 - `src/lyrics_editor/models.py`: shared data models.
 - `src/lyrics_editor/matcher.py`: candidate lyric ranking.
-- `src/lyrics_editor/providers/`: online lyrics provider interfaces and implementations.
+- `src/lyrics_editor/providers/`: online and local lyrics provider interfaces and implementations.
 - `src/lyrics_editor/align/`: text normalization, ASR adapters, and timeline alignment.
 - `src/lyrics_editor/cli.py`: command-line interface.
-- `tests/`: focused tests for parsing, text normalization, and timeline repair.
+- `src/lyrics_editor/ui.py`: Tkinter desktop interface.
+- `tests/`: focused tests for parsing, text normalization, providers, and timeline repair.
 
 ### Near-Term Roadmap
 
@@ -118,3 +119,24 @@ Verification:
 - `python -m pytest -q` passed with 8 tests.
 - `python -m ruff check .` passed.
 - `lyrics-editor --help` showed the new `choose` command.
+
+### 2026-05-11 - Expand lyrics sources and add desktop UI
+
+Expanded the matching pipeline to use multiple sources and added a Tkinter desktop interface.
+
+Changed:
+
+- Added `SidecarLyricsProvider` for local `.lrc` and `.txt` sidecar lyrics files.
+- Added `LyricsOvhProvider` for plain-text online lyrics from `api.lyrics.ovh`.
+- Added `search_candidates()` orchestration so multiple providers can be queried together.
+- Added candidate deduplication across providers.
+- Added `lyrics-editor gui` and a `lyrics-editor-gui` entry point.
+- Added a Tkinter interface for browsing local audio files, choosing active providers, previewing candidates, and saving results.
+- Added tests for sidecar source loading and provider deduplication.
+
+Verification:
+
+- `python -m pytest -q` passed with 10 tests.
+- `python -m ruff check .` passed.
+- `lyrics-editor --help` showed the new `gui` command.
+- `Get-Command lyrics-editor-gui` resolved to the installed executable.

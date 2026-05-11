@@ -27,6 +27,7 @@ dev = [
 
 [project.scripts]
 lyrics-editor = "lyrics_editor.cli:app"
+lyrics-editor-gui = "lyrics_editor.ui:run_app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/lyrics_editor"]
@@ -34,4 +35,3 @@ packages = ["src/lyrics_editor"]
 [tool.ruff]
 line-length = 100
 target-version = "py310"
-

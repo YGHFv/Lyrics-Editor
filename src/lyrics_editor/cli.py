@@ -10,8 +10,7 @@ from lyrics_editor.align.asr import FasterWhisperTranscriber
 from lyrics_editor.align.timeline import align_lyrics_to_transcript
 from lyrics_editor.audio import iter_audio_files, read_metadata
 from lyrics_editor.lrc import lyrics_from_lrc, lyrics_preview, to_lrc
-from lyrics_editor.matcher import rank_candidates
-from lyrics_editor.providers.lrclib import LrclibProvider
+from lyrics_editor.providers.catalog import search_candidates
 
 app = typer.Typer(help="Local music lyrics matcher and timeline editor.")
 console = Console()
@@ -31,19 +30,52 @@ def inspect(path: Path) -> None:
     console.print(table)
 
 
+def _parse_provider_names(provider_names: str | None) -> list[str] | None:
+    if provider_names is None:
+        return None
+    names = [name.strip() for name in provider_names.split(",") if name.strip()]
+    return names or None
+
+
 @app.command()
-def search(path: Path, limit: int = 10, preview_lines: int = 3) -> None:
+def search(
+    path: Path,
+    limit: int = 10,
+    preview_lines: int = 3,
+    providers: str | None = None,
+) -> None:
     """Search online lyrics for one local audio file."""
     track = read_metadata(path)
-    candidates = rank_candidates(track, LrclibProvider().search(track, limit=limit))
+    try:
+        candidates = search_candidates(
+            track,
+            limit=limit,
+            provider_names=_parse_provider_names(providers),
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
     _print_candidates(candidates, preview_lines=preview_lines)
 
 
 @app.command()
-def match(path: Path, output: Path | None = None, limit: int = 10) -> None:
+def match(
+    path: Path,
+    output: Path | None = None,
+    limit: int = 10,
+    providers: str | None = None,
+) -> None:
     """Search the best synced lyrics and save it as LRC."""
     track = read_metadata(path)
-    candidates = rank_candidates(track, LrclibProvider().search(track, limit=limit))
+    try:
+        candidates = search_candidates(
+            track,
+            limit=limit,
+            provider_names=_parse_provider_names(providers),
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
     if not candidates:
         console.print(f"[yellow]No lyrics found:[/] {path}")
         raise typer.Exit(code=1)
@@ -66,10 +98,19 @@ def choose(
     limit: int = 10,
     preview_lines: int = 3,
     index: int | None = None,
+    providers: str | None = None,
 ) -> None:
     """Preview candidates and let you pick one manually."""
     track = read_metadata(path)
-    candidates = rank_candidates(track, LrclibProvider().search(track, limit=limit))
+    try:
+        candidates = search_candidates(
+            track,
+            limit=limit,
+            provider_names=_parse_provider_names(providers),
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/]")
+        raise typer.Exit(code=1) from exc
     if not candidates:
         console.print(f"[yellow]No lyrics found:[/] {path}")
         raise typer.Exit(code=1)
@@ -97,12 +138,19 @@ def choose(
 
 
 @app.command()
-def scan(root: Path, save: bool = False, limit: int = 10) -> None:
+def scan(root: Path, save: bool = False, limit: int = 10, providers: str | None = None) -> None:
     """Scan a file or directory, optionally saving best matched LRC files."""
-    provider = LrclibProvider()
     for path in iter_audio_files(root):
         track = read_metadata(path)
-        candidates = rank_candidates(track, provider.search(track, limit=limit))
+        try:
+            candidates = search_candidates(
+                track,
+                limit=limit,
+                provider_names=_parse_provider_names(providers),
+            )
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/]")
+            continue
         if not candidates:
             console.print(f"[yellow]No lyrics found:[/] {path}")
             continue
@@ -140,6 +188,18 @@ def repair(
     console.print(f"[green]Saved repaired LRC[/] {target}")
     if repaired.words:
         console.print(f"[cyan]Captured word timings:[/] {len(repaired.words)} words")
+
+
+@app.command()
+def gui() -> None:
+    """Open the desktop interface."""
+    try:
+        from lyrics_editor.ui import run_app
+    except ImportError as exc:
+        console.print(f"[red]GUI unavailable:[/] {exc}")
+        raise typer.Exit(code=1) from exc
+
+    run_app()
 
 
 def _print_candidates(candidates) -> None:
