@@ -140,3 +140,20 @@ Verification:
 - `python -m ruff check .` passed.
 - `lyrics-editor --help` showed the new `gui` command.
 - `Get-Command lyrics-editor-gui` resolved to the installed executable.
+
+### 2026-05-11 - Localize the app to Chinese
+
+Unified the user-facing application language to Chinese.
+
+Changed:
+
+- Translated CLI help text, command descriptions, table headers, prompts, and status messages.
+- Translated desktop UI window title, buttons, labels, dialogs, and progress messages.
+- Kept internal code identifiers unchanged so the logic stays stable.
+
+Verification:
+
+- `python -m pytest -q` passed with 10 tests.
+- `python -m ruff check .` passed.
+- `lyrics-editor --help` displayed Chinese help text and command descriptions.
+- `lyrics-editor gui --help` displayed a Chinese command description.

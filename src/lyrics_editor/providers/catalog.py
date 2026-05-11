@@ -30,7 +30,7 @@ def search_candidates(
         except Exception as exc:
             errors.append(f"{provider.name}: {exc}")
     if not collected and errors:
-        raise RuntimeError("All lyrics providers failed: " + "; ".join(errors))
+        raise RuntimeError("所有歌词来源都失败了：" + "; ".join(errors))
     return rank_candidates(track, _dedupe_lyrics(collected))
 
 
@@ -42,7 +42,7 @@ def build_provider(name: str):
         return LrclibProvider()
     if key in {"lyrics_ovh", "lyrics.ovh", "lyricsohv", "lyricsovh"}:
         return LyricsOvhProvider()
-    raise ValueError(f"Unknown lyrics provider: {name}")
+    raise ValueError(f"未知的歌词来源：{name}")
 
 
 def _normalize_provider_names(provider_names: Iterable[str] | None) -> tuple[str, ...]:
