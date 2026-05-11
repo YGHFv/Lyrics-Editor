@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+import io
 import queue
 import platform
 import threading
@@ -9,14 +10,22 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from lyrics_editor.audio import iter_audio_files, read_metadata
+try:
+    from PIL import Image, ImageTk
+except ImportError:  # pragma: no cover - optional dependency guard
+    Image = ImageTk = None
+
+from lyrics_editor.audio import iter_audio_files, read_metadata, write_embedded_lyrics
 from lyrics_editor.lrc import lyrics_preview, to_lrc
 from lyrics_editor.models import LyricCandidate, TrackMetadata
 from lyrics_editor.providers.catalog import available_provider_names, search_candidates
 from lyrics_editor.searching import build_search_track
 
 PROVIDER_LABELS = {
-    "sidecar": "本地旁路",
+    "embedded": "内嵌",
+    "sidecar": "本地",
+    "netease": "网易云",
+    "qqmusic": "QQ音乐",
     "lrclib": "LRCLIB",
     "lyrics_ovh": "Lyrics.ovh",
 }
@@ -27,8 +36,7 @@ class LyricsEditorApp(tk.Tk):
         _enable_windows_hidpi()
         super().__init__()
         self.title("歌词编辑器")
-        self.geometry("1280x760")
-        self.minsize(1100, 680)
+        self.minsize(1280, 760)
 
         self.folder_var = tk.StringVar()
         self.status_var = tk.StringVar(value="请选择一个文件夹以扫描本地音乐文件。")
@@ -36,8 +44,10 @@ class LyricsEditorApp(tk.Tk):
         self.search_artist_var = tk.StringVar()
         self.search_album_var = tk.StringVar()
         self.auto_search_var = tk.BooleanVar(value=True)
+        self.show_translation_var = tk.BooleanVar(value=False)
+        self.save_translation_var = tk.BooleanVar(value=False)
+        self.save_to_audio_var = tk.BooleanVar(value=False)
         self.limit_var = tk.IntVar(value=10)
-        self.preview_lines_var = tk.IntVar(value=3)
         self.output_var = tk.StringVar()
 
         self.provider_vars = {
@@ -51,9 +61,11 @@ class LyricsEditorApp(tk.Tk):
         self._search_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self._search_token = 0
         self._search_running = False
+        self._cover_photo = None
 
-        self._build_ui()
         self._apply_look_and_feel()
+        self._build_ui()
+        self._set_initial_window_size()
         self.after(100, self._poll_queue)
 
     def _apply_look_and_feel(self) -> None:
@@ -88,7 +100,7 @@ class LyricsEditorApp(tk.Tk):
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
 
         controls = ttk.Frame(self, padding=10)
         controls.grid(row=0, column=0, sticky="ew")
@@ -107,9 +119,13 @@ class LyricsEditorApp(tk.Tk):
 
         provider_box = ttk.LabelFrame(options, text="歌词来源", padding=8)
         provider_box.grid(row=0, column=0, sticky="ew")
+        provider_grid = ttk.Frame(provider_box)
+        provider_grid.grid(row=0, column=0, sticky="w")
+        for column in range(len(available_provider_names())):
+            provider_grid.columnconfigure(column, weight=0)
         for index, name in enumerate(available_provider_names()):
             ttk.Checkbutton(
-                provider_box,
+                provider_grid,
                 text=PROVIDER_LABELS.get(name, name),
                 variable=self.provider_vars[name],
             ).grid(row=0, column=index, padx=(0, 12), sticky="w")
@@ -126,10 +142,25 @@ class LyricsEditorApp(tk.Tk):
         ttk.Spinbox(search_opts, from_=1, to=50, textvariable=self.limit_var, width=5).grid(
             row=0, column=1, padx=(0, 16)
         )
-        ttk.Label(search_opts, text="预览行数").grid(row=0, column=2, padx=(0, 6))
-        ttk.Spinbox(
-            search_opts, from_=1, to=10, textvariable=self.preview_lines_var, width=5
-        ).grid(row=0, column=3)
+        toggle_box = ttk.Frame(options)
+        toggle_box.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        ttk.Checkbutton(
+            toggle_box,
+            text="预览显示翻译",
+            variable=self.show_translation_var,
+            command=self._refresh_preview,
+        ).grid(row=0, column=0, padx=(0, 16), sticky="w")
+        ttk.Checkbutton(
+            toggle_box,
+            text="保存时包含翻译",
+            variable=self.save_translation_var,
+        ).grid(row=0, column=1, padx=(0, 16), sticky="w")
+        ttk.Checkbutton(
+            toggle_box,
+            text="直接写入音频文件",
+            variable=self.save_to_audio_var,
+            command=self._update_output_default,
+        ).grid(row=0, column=2, sticky="w")
 
         main = ttk.Panedwindow(self, orient=tk.HORIZONTAL)
         main.grid(row=2, column=0, sticky="nsew")
@@ -193,6 +224,7 @@ class LyricsEditorApp(tk.Tk):
         meta = ttk.LabelFrame(right, text="当前选择", padding=8)
         meta.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         meta.columnconfigure(1, weight=1)
+        meta.columnconfigure(2, weight=0)
         self.meta_title = tk.StringVar(value="-")
         self.meta_artist = tk.StringVar(value="-")
         self.meta_album = tk.StringVar(value="-")
@@ -210,6 +242,8 @@ class LyricsEditorApp(tk.Tk):
         for row, (label, var) in enumerate(fields):
             ttk.Label(meta, text=label).grid(row=row, column=0, sticky="w", pady=1)
             ttk.Label(meta, textvariable=var).grid(row=row, column=1, sticky="w", pady=1)
+        self.cover_label = ttk.Label(meta, text="无封面", anchor="center")
+        self.cover_label.grid(row=0, column=2, rowspan=len(fields), sticky="nsew", padx=(12, 0))
 
         candidates_box = ttk.LabelFrame(right, text="候选歌词", padding=8)
         candidates_box.grid(row=2, column=0, sticky="ew", pady=(10, 0))
@@ -315,7 +349,12 @@ class LyricsEditorApp(tk.Tk):
         self.meta_artist.set(track.artist_text or "")
         self.meta_album.set(track.album or "")
         self.meta_duration.set(f"{track.duration:.2f}s" if track.duration else "")
-        self.output_var.set(str(track.path.with_suffix(".lrc")))
+        self._update_cover_art(track)
+        self._update_output_default()
+        if track.embedded_lyrics is not None:
+            self._show_lyrics(track.embedded_lyrics)
+        else:
+            self.preview.delete("1.0", "end")
         self.status_var.set(f"已选中 {track.path.name}")
         if self.auto_search_var.get():
             self._start_search()
@@ -337,12 +376,11 @@ class LyricsEditorApp(tk.Tk):
         self._search_token += 1
         token = self._search_token
         self.status_var.set(f"正在搜索 {track.display_title}...")
-        self.preview.delete("1.0", "end")
-        self.preview.insert("1.0", "正在搜索歌词……")
+        self._show_preview_text("正在搜索歌词……")
 
         thread = threading.Thread(
             target=self._search_worker,
-            args=(token, track, provider_names, self.limit_var.get(), self.preview_lines_var.get()),
+            args=(token, track, provider_names, self.limit_var.get()),
             daemon=True,
         )
         thread.start()
@@ -353,7 +391,6 @@ class LyricsEditorApp(tk.Tk):
         track: TrackMetadata,
         provider_names: list[str],
         limit: int,
-        preview_lines: int,
     ) -> None:
         try:
             candidates = search_candidates(
@@ -361,7 +398,7 @@ class LyricsEditorApp(tk.Tk):
                 limit=limit,
                 provider_names=provider_names,
             )
-            self._search_queue.put(("result", token, candidates, preview_lines))
+            self._search_queue.put(("result", token, candidates))
         except Exception as exc:  # pragma: no cover - background thread
             self._search_queue.put(("error", token, exc))
 
@@ -373,21 +410,17 @@ class LyricsEditorApp(tk.Tk):
                     continue
                 if kind == "result":
                     candidates = payload[0]
-                    preview_lines = payload[1]
-                    self._apply_candidates(candidates, preview_lines)
+                    self._apply_candidates(candidates)
                 elif kind == "error":
                     exc = payload[0]
                     self.status_var.set(f"搜索失败：{exc}")
-                    self.preview.delete("1.0", "end")
-                    self.preview.insert("1.0", f"搜索失败：\n{exc}")
+                    self._show_preview_text(f"搜索失败：\n{exc}")
                 self._search_running = False
         except queue.Empty:
             pass
         self.after(100, self._poll_queue)
 
-    def _apply_candidates(
-        self, candidates: list[LyricCandidate], preview_lines: int
-    ) -> None:
+    def _apply_candidates(self, candidates: list[LyricCandidate]) -> None:
         self._candidate_items = candidates
         self.candidate_tree.delete(*self.candidate_tree.get_children())
         for index, candidate in enumerate(candidates):
@@ -400,7 +433,9 @@ class LyricsEditorApp(tk.Tk):
                     candidate.lyrics.source,
                     candidate.lyrics.title,
                     candidate.lyrics.artist,
-                    "yes" if candidate.lyrics.lines else "no",
+                    "yes"
+                    if (candidate.lyrics.lines or candidate.lyrics.words or candidate.lyrics.synced_text)
+                    else "no",
                 ),
             )
         self.meta_source.set(candidates[0].lyrics.source if candidates else "-")
@@ -411,10 +446,9 @@ class LyricsEditorApp(tk.Tk):
         if candidates:
             self.candidate_tree.selection_set("0")
             self.candidate_tree.focus("0")
-            self._show_candidate(candidates[0], preview_lines)
+            self._show_candidate(candidates[0])
         else:
-            self.preview.delete("1.0", "end")
-            self.preview.insert("1.0", "未找到歌词。")
+            self._show_preview_text("未找到歌词。")
 
     def _on_candidate_select(self, _event: object) -> None:
         selection = self.candidate_tree.selection()
@@ -422,14 +456,28 @@ class LyricsEditorApp(tk.Tk):
             return
         index = int(selection[0])
         if 0 <= index < len(self._candidate_items):
-            self._show_candidate(self._candidate_items[index], self.preview_lines_var.get())
+            self._show_candidate(self._candidate_items[index])
 
-    def _show_candidate(self, candidate: LyricCandidate, preview_lines: int) -> None:
+    def _show_candidate(self, candidate: LyricCandidate) -> None:
         self.meta_source.set(candidate.lyrics.source)
         self.meta_score.set(f"{candidate.score:.2f}")
+        self._show_lyrics(candidate.lyrics)
+
+    def _show_lyrics(self, lyrics) -> None:
+        preview = lyrics_preview(
+            lyrics,
+            max_lines=None,
+            max_chars=None,
+            show_translation=self.show_translation_var.get(),
+        )
+        if not preview:
+            preview = to_lrc(lyrics, show_translation=self.show_translation_var.get())
+        self._show_preview_text(preview or "暂无可显示内容。")
+
+    def _show_preview_text(self, text: str) -> None:
         self.preview.delete("1.0", "end")
-        preview = lyrics_preview(candidate.lyrics, max_lines=preview_lines, max_chars=5000)
-        self.preview.insert("1.0", preview or to_lrc(candidate.lyrics))
+        self.preview.insert("1.0", text)
+        self.preview.see("1.0")
 
     def _selected_candidate(self) -> LyricCandidate | None:
         selection = self.candidate_tree.selection()
@@ -458,26 +506,63 @@ class LyricsEditorApp(tk.Tk):
         if not output:
             messagebox.showerror("歌词编辑器", "请选择输出路径。")
             return
-        if not candidate.lyrics.lines and not candidate.lyrics.synced_text:
+        if not candidate.lyrics.lines and not candidate.lyrics.words and not candidate.lyrics.synced_text:
             messagebox.showinfo("歌词编辑器", "所选候选没有可保存的歌词。")
             return
-        output.write_text(to_lrc(candidate.lyrics), encoding="utf-8")
+        if self.save_to_audio_var.get():
+            if output.suffix.lower() not in {
+                ".aac",
+                ".aiff",
+                ".alac",
+                ".ape",
+                ".flac",
+                ".m4a",
+                ".mp3",
+                ".ogg",
+                ".opus",
+                ".wav",
+                ".wma",
+            }:
+                messagebox.showerror("歌词编辑器", "请先选择一个支持写入歌词的音频文件。")
+                return
+            write_embedded_lyrics(
+                output,
+                candidate.lyrics,
+                show_translation=self.save_translation_var.get(),
+            )
+        else:
+            output.write_text(
+                to_lrc(candidate.lyrics, show_translation=self.save_translation_var.get()),
+                encoding="utf-8",
+            )
         self.status_var.set(f"已保存 {output}")
         messagebox.showinfo("歌词编辑器", f"已保存歌词到 {output}")
 
     def _pick_output(self) -> None:
-        filename = filedialog.asksaveasfilename(
-            title="另存歌词",
-            defaultextension=".lrc",
-            filetypes=[("LRC 文件", "*.lrc"), ("所有文件", "*.*")],
-        )
+        if self.save_to_audio_var.get():
+            filename = filedialog.asksaveasfilename(
+                title="选择音频文件",
+                filetypes=[
+                    ("音频文件", "*.mp3 *.m4a *.flac *.ogg *.opus *.wma *.aac *.wav *.ape *.aiff"),
+                    ("所有文件", "*.*"),
+                ],
+            )
+        else:
+            filename = filedialog.asksaveasfilename(
+                title="另存歌词",
+                defaultextension=".lrc",
+                filetypes=[("LRC 文件", "*.lrc"), ("所有文件", "*.*")],
+            )
         if filename:
             self.output_var.set(filename)
 
     def _set_sidecar_output(self) -> None:
         if self._selected_track_path is None:
             return
-        self.output_var.set(str(self._selected_track_path.with_suffix(".lrc")))
+        if self.save_to_audio_var.get():
+            self.output_var.set(str(self._selected_track_path))
+        else:
+            self.output_var.set(str(self._selected_track_path.with_suffix(".lrc")))
 
     def _set_search_fields(self, track: TrackMetadata) -> None:
         self.search_title_var.set(track.title or track.display_title)
@@ -497,6 +582,52 @@ class LyricsEditorApp(tk.Tk):
             artist=self.search_artist_var.get(),
             album=self.search_album_var.get(),
         )
+
+    def _refresh_preview(self) -> None:
+        candidate = self._selected_candidate()
+        if candidate is not None:
+            self._show_candidate(candidate)
+            return
+        if self._selected_track and self._selected_track.embedded_lyrics is not None:
+            self._show_lyrics(self._selected_track.embedded_lyrics)
+
+    def _update_output_default(self) -> None:
+        if self._selected_track_path is None:
+            return
+        if self.save_to_audio_var.get():
+            self.output_var.set(str(self._selected_track_path))
+        else:
+            self.output_var.set(str(self._selected_track_path.with_suffix(".lrc")))
+
+    def _update_cover_art(self, track: TrackMetadata) -> None:
+        if Image is None or ImageTk is None or not track.cover_data:
+            self._cover_photo = None
+            self.cover_label.configure(image="", text="无封面")
+            return
+        try:
+            image = Image.open(io.BytesIO(track.cover_data))
+            image.thumbnail((160, 160))
+            self._cover_photo = ImageTk.PhotoImage(image)
+            self.cover_label.configure(image=self._cover_photo, text="")
+            self.cover_label.image = self._cover_photo
+        except Exception:
+            self._cover_photo = None
+            self.cover_label.configure(image="", text="封面无法显示")
+
+    def _set_initial_window_size(self) -> None:
+        self.update_idletasks()
+        try:
+            self.state("zoomed")
+            return
+        except tk.TclError:
+            pass
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+        width = min(1680, max(1280, screen_w - 80))
+        height = min(980, max(760, screen_h - 120))
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
 
 def _enable_windows_hidpi() -> None:

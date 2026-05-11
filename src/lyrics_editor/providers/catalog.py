@@ -4,11 +4,14 @@ from collections.abc import Iterable
 
 from lyrics_editor.matcher import rank_candidates
 from lyrics_editor.models import LyricCandidate, Lyrics, TrackMetadata
+from lyrics_editor.providers.embedded import EmbeddedLyricsProvider
 from lyrics_editor.providers.local import SidecarLyricsProvider
 from lyrics_editor.providers.lrclib import LrclibProvider
 from lyrics_editor.providers.lyrics_ovh import LyricsOvhProvider
+from lyrics_editor.providers.netease import NeteaseProvider
+from lyrics_editor.providers.qqmusic import QQMusicProvider
 
-DEFAULT_PROVIDER_NAMES = ("sidecar", "lrclib", "lyrics_ovh")
+DEFAULT_PROVIDER_NAMES = ("embedded", "sidecar", "netease", "qqmusic", "lrclib", "lyrics_ovh")
 
 
 def available_provider_names() -> tuple[str, ...]:
@@ -36,8 +39,14 @@ def search_candidates(
 
 def build_provider(name: str):
     key = name.strip().lower()
+    if key in {"embedded", "local-embedded", "tag", "tags"}:
+        return EmbeddedLyricsProvider()
     if key in {"sidecar", "local"}:
         return SidecarLyricsProvider()
+    if key in {"netease", "neteasecloud", "netease_music", "网易云", "网易云音乐"}:
+        return NeteaseProvider()
+    if key in {"qq", "qqmusic", "qq-music", "qq音乐", "qq音乐歌词"}:
+        return QQMusicProvider()
     if key in {"lrclib", "lrc-lib"}:
         return LrclibProvider()
     if key in {"lyrics_ovh", "lyrics.ovh", "lyricsohv", "lyricsovh"}:

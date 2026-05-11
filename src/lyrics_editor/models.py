@@ -11,6 +11,9 @@ class TrackMetadata:
     artists: tuple[str, ...] = ()
     album: str | None = None
     duration: float | None = None
+    embedded_lyrics: "Lyrics" | None = None
+    cover_data: bytes | None = None
+    cover_mime: str | None = None
 
     @property
     def artist_text(self) -> str | None:
@@ -26,6 +29,7 @@ class LyricLine:
     start: float
     text: str
     end: float | None = None
+    translation: str | None = None
 
 
 @dataclass(frozen=True)
@@ -63,4 +67,3 @@ class TranscriptSegment:
     end: float
     text: str
     words: tuple[WordTiming, ...] = ()
-

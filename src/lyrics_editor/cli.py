@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 import typer
@@ -201,7 +204,7 @@ def repair(
 
 
 @app.command()
-def gui() -> None:
+def gui(watch: bool = False) -> None:
     """打开桌面界面。"""
     try:
         from lyrics_editor.ui import run_app
@@ -209,7 +212,50 @@ def gui() -> None:
         console.print(f"[red]界面不可用：[/] {exc}")
         raise typer.Exit(code=1) from exc
 
+    if watch:
+        _run_gui_with_watch()
+        return
     run_app()
+
+
+def _run_gui_with_watch() -> None:
+    watch_roots = [Path("src"), Path("pyproject.toml")]
+    snapshot = _snapshot_files(watch_roots)
+    console.print("[cyan]开发模式已启动：[/] 代码变化后会自动重启界面。按 Ctrl+C 退出。")
+    while True:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "from lyrics_editor.ui import run_app; run_app()"]
+        )
+        try:
+            while process.poll() is None:
+                time.sleep(0.8)
+                current = _snapshot_files(watch_roots)
+                if current != snapshot:
+                    snapshot = current
+                    console.print("[yellow]检测到代码变更，正在重启界面...[/]")
+                    process.terminate()
+                    process.wait(timeout=5)
+                    break
+            else:
+                break
+        except KeyboardInterrupt:
+            process.terminate()
+            process.wait(timeout=5)
+            raise typer.Exit()
+
+
+def _snapshot_files(paths: list[Path]) -> dict[str, tuple[int, int]]:
+    snapshot: dict[str, tuple[int, int]] = {}
+    for path in paths:
+        if path.is_file():
+            stat = path.stat()
+            snapshot[str(path)] = (int(stat.st_mtime_ns), int(stat.st_size))
+            continue
+        if path.is_dir():
+            for file in path.rglob("*.py"):
+                stat = file.stat()
+                snapshot[str(file)] = (int(stat.st_mtime_ns), int(stat.st_size))
+    return snapshot
 
 
 def _print_candidates(candidates) -> None:
