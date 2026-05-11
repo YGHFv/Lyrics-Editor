@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lyrics-editor"
+version = "0.1.0"
+description = "Local music lyrics matcher and timeline editor."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "mutagen>=1.47.0",
+  "rapidfuzz>=3.6.0",
+  "requests>=2.31.0",
+  "rich>=13.7.0",
+  "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+asr = [
+  "faster-whisper>=1.0.0",
+]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0",
+]
+
+[project.scripts]
+lyrics-editor = "lyrics_editor.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lyrics_editor"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
