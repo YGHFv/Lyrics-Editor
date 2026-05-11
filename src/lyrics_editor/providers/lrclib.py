@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import requests
 
 from lyrics_editor.lrc import lyrics_from_lrc
@@ -14,21 +16,53 @@ class LrclibProvider:
         self.timeout = timeout
 
     def search(self, track: TrackMetadata, limit: int = 10) -> list[Lyrics]:
-        params = {
-            "track_name": track.display_title,
-        }
-        if track.artist_text:
-            params["artist_name"] = track.artist_text
-        if track.album:
-            params["album_name"] = track.album
-        if track.duration:
-            params["duration"] = str(round(track.duration))
+        results: list[Lyrics] = []
+        for params in self._search_params(track):
+            response = requests.get(f"{self.base_url}/search", params=params, timeout=self.timeout)
+            response.raise_for_status()
+            results = self._parse_results(response.json(), track, limit)
+            if results:
+                break
+        return results
 
-        response = requests.get(f"{self.base_url}/search", params=params, timeout=self.timeout)
-        response.raise_for_status()
+    def _search_params(self, track: TrackMetadata) -> list[dict[str, str]]:
+        params: list[dict[str, str]] = []
 
-        results = []
-        for item in response.json()[:limit]:
+        if track.artist_text and track.display_title:
+            base = {
+                "query": f"{track.artist_text} {track.display_title}".strip(),
+                "track_name": track.display_title,
+                "artist_name": track.artist_text,
+            }
+            if track.album:
+                base["album_name"] = track.album
+            if track.duration:
+                base["duration"] = str(round(track.duration))
+            params.append(base)
+
+        if track.display_title:
+            title_only = {"track_name": track.display_title}
+            if track.album:
+                title_only["album_name"] = track.album
+            if track.duration:
+                title_only["duration"] = str(round(track.duration))
+            params.append(title_only)
+
+        if track.artist_text and track.display_title:
+            params.append({"query": f"{track.display_title} {track.artist_text}".strip()})
+
+        return params or [{"query": track.display_title}]
+
+    def _parse_results(
+        self, payload: object, track: TrackMetadata, limit: int
+    ) -> list[Lyrics]:
+        if not isinstance(payload, list):
+            return []
+
+        results: list[Lyrics] = []
+        for item in payload[:limit]:
+            if not isinstance(item, dict):
+                continue
             synced = item.get("syncedLyrics")
             plain = item.get("plainLyrics")
             if not synced and not plain:
@@ -43,18 +77,6 @@ class LrclibProvider:
                 provider_id=str(item.get("id")) if item.get("id") is not None else None,
             )
             if plain:
-                lyrics = Lyrics(
-                    source=lyrics.source,
-                    title=lyrics.title,
-                    artist=lyrics.artist,
-                    album=lyrics.album,
-                    duration=lyrics.duration,
-                    synced_text=lyrics.synced_text,
-                    plain_text=plain,
-                    lines=lyrics.lines,
-                    words=lyrics.words,
-                    provider_id=lyrics.provider_id,
-                    metadata=lyrics.metadata,
-                )
+                lyrics = replace(lyrics, synced_text=lyrics.synced_text, plain_text=plain)
             results.append(lyrics)
         return results

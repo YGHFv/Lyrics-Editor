@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ctypes
 import queue
+import platform
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -10,6 +13,7 @@ from lyrics_editor.audio import iter_audio_files, read_metadata
 from lyrics_editor.lrc import lyrics_preview, to_lrc
 from lyrics_editor.models import LyricCandidate, TrackMetadata
 from lyrics_editor.providers.catalog import available_provider_names, search_candidates
+from lyrics_editor.searching import build_search_track
 
 PROVIDER_LABELS = {
     "sidecar": "本地旁路",
@@ -20,6 +24,7 @@ PROVIDER_LABELS = {
 
 class LyricsEditorApp(tk.Tk):
     def __init__(self) -> None:
+        _enable_windows_hidpi()
         super().__init__()
         self.title("歌词编辑器")
         self.geometry("1280x760")
@@ -27,6 +32,9 @@ class LyricsEditorApp(tk.Tk):
 
         self.folder_var = tk.StringVar()
         self.status_var = tk.StringVar(value="请选择一个文件夹以扫描本地音乐文件。")
+        self.search_title_var = tk.StringVar()
+        self.search_artist_var = tk.StringVar()
+        self.search_album_var = tk.StringVar()
         self.auto_search_var = tk.BooleanVar(value=True)
         self.limit_var = tk.IntVar(value=10)
         self.preview_lines_var = tk.IntVar(value=3)
@@ -45,7 +53,38 @@ class LyricsEditorApp(tk.Tk):
         self._search_running = False
 
         self._build_ui()
+        self._apply_look_and_feel()
         self.after(100, self._poll_queue)
+
+    def _apply_look_and_feel(self) -> None:
+        style = ttk.Style(self)
+        if "vista" in style.theme_names():
+            style.theme_use("vista")
+        elif "xpnative" in style.theme_names():
+            style.theme_use("xpnative")
+        else:
+            style.theme_use("clam")
+
+        base = tkfont.nametofont("TkDefaultFont")
+        base.configure(family="Segoe UI", size=10)
+        heading = tkfont.nametofont("TkHeadingFont")
+        heading.configure(family="Segoe UI", size=10, weight="bold")
+        self._mono_font = tkfont.nametofont("TkFixedFont")
+        self._mono_font.configure(family="Consolas", size=10)
+        self.option_add("*Font", base)
+        self.option_add("*TCombobox*Listbox.Font", base)
+        self.tk.call("tk", "scaling", self.winfo_fpixels("1i") / 72.0)
+
+        self.configure(background="#f5f6f8")
+        style.configure("TFrame", background="#f5f6f8")
+        style.configure("TLabel", background="#f5f6f8")
+        style.configure("TButton", padding=(10, 5))
+        style.configure("TCheckbutton", background="#f5f6f8")
+        style.configure("TLabelframe", background="#f5f6f8", padding=8)
+        style.configure("TLabelframe.Label", background="#f5f6f8", font=heading)
+        style.configure("Treeview", rowheight=28, font=base)
+        style.configure("Treeview.Heading", font=heading)
+        style.map("Treeview", background=[("selected", "#dce8ff")])
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
@@ -133,11 +172,26 @@ class LyricsEditorApp(tk.Tk):
             side="left"
         )
 
-        right.rowconfigure(2, weight=1)
+        right.rowconfigure(3, weight=1)
         right.columnconfigure(0, weight=1)
 
+        search_meta = ttk.LabelFrame(right, text="搜索信息", padding=8)
+        search_meta.grid(row=0, column=0, sticky="ew")
+        search_meta.columnconfigure(1, weight=1)
+        search_fields = [
+            ("标题", self.search_title_var),
+            ("歌手", self.search_artist_var),
+            ("专辑", self.search_album_var),
+        ]
+        for row, (label, var) in enumerate(search_fields):
+            ttk.Label(search_meta, text=label).grid(row=row, column=0, sticky="w", pady=1)
+            ttk.Entry(search_meta, textvariable=var).grid(row=row, column=1, sticky="ew", pady=1)
+        ttk.Button(search_meta, text="重置", command=self._reset_search_fields).grid(
+            row=0, column=2, rowspan=3, padx=(8, 0), sticky="ns"
+        )
+
         meta = ttk.LabelFrame(right, text="当前选择", padding=8)
-        meta.grid(row=0, column=0, sticky="ew")
+        meta.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         meta.columnconfigure(1, weight=1)
         self.meta_title = tk.StringVar(value="-")
         self.meta_artist = tk.StringVar(value="-")
@@ -158,7 +212,7 @@ class LyricsEditorApp(tk.Tk):
             ttk.Label(meta, textvariable=var).grid(row=row, column=1, sticky="w", pady=1)
 
         candidates_box = ttk.LabelFrame(right, text="候选歌词", padding=8)
-        candidates_box.grid(row=1, column=0, sticky="ew", pady=(10, 0))
+        candidates_box.grid(row=2, column=0, sticky="ew", pady=(10, 0))
         candidates_box.columnconfigure(0, weight=1)
         self.candidate_tree = ttk.Treeview(
             candidates_box,
@@ -185,17 +239,18 @@ class LyricsEditorApp(tk.Tk):
         self.candidate_tree.bind("<<TreeviewSelect>>", self._on_candidate_select)
 
         preview_frame = ttk.LabelFrame(right, text="预览", padding=8)
-        preview_frame.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
+        preview_frame.grid(row=3, column=0, sticky="nsew", pady=(10, 0))
         preview_frame.rowconfigure(0, weight=1)
         preview_frame.columnconfigure(0, weight=1)
         self.preview = tk.Text(preview_frame, wrap="word", height=16, relief="flat")
+        self.preview.configure(font=self._mono_font, background="#fbfbfc", foreground="#1f2937")
         preview_scroll = ttk.Scrollbar(preview_frame, orient="vertical", command=self.preview.yview)
         self.preview.configure(yscrollcommand=preview_scroll.set)
         self.preview.grid(row=0, column=0, sticky="nsew")
         preview_scroll.grid(row=0, column=1, sticky="ns")
 
         output_box = ttk.Frame(right)
-        output_box.grid(row=3, column=0, sticky="ew", pady=(10, 0))
+        output_box.grid(row=4, column=0, sticky="ew", pady=(10, 0))
         output_box.columnconfigure(1, weight=1)
         ttk.Label(output_box, text="输出").grid(row=0, column=0, padx=(0, 8))
         ttk.Entry(output_box, textvariable=self.output_var).grid(
@@ -255,6 +310,7 @@ class LyricsEditorApp(tk.Tk):
     def _select_track(self, track: TrackMetadata) -> None:
         self._selected_track = track
         self._selected_track_path = track.path
+        self._set_search_fields(track)
         self.meta_title.set(track.display_title)
         self.meta_artist.set(track.artist_text or "")
         self.meta_album.set(track.album or "")
@@ -267,7 +323,7 @@ class LyricsEditorApp(tk.Tk):
     def _start_search(self) -> None:
         if self._search_running:
             return
-        track = self._selected_track
+        track = self._build_search_track()
         if track is None:
             messagebox.showinfo("歌词编辑器", "请先选择一首歌。")
             return
@@ -422,6 +478,37 @@ class LyricsEditorApp(tk.Tk):
         if self._selected_track_path is None:
             return
         self.output_var.set(str(self._selected_track_path.with_suffix(".lrc")))
+
+    def _set_search_fields(self, track: TrackMetadata) -> None:
+        self.search_title_var.set(track.title or track.display_title)
+        self.search_artist_var.set(track.artist_text or "")
+        self.search_album_var.set(track.album or "")
+
+    def _reset_search_fields(self) -> None:
+        if self._selected_track is not None:
+            self._set_search_fields(self._selected_track)
+
+    def _build_search_track(self) -> TrackMetadata | None:
+        if self._selected_track is None:
+            return None
+        return build_search_track(
+            self._selected_track,
+            title=self.search_title_var.get(),
+            artist=self.search_artist_var.get(),
+            album=self.search_album_var.get(),
+        )
+
+
+def _enable_windows_hidpi() -> None:
+    if platform.system() != "Windows":
+        return
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 
 def run_app() -> None:

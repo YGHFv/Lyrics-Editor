@@ -10,6 +10,7 @@ from lyrics_editor.align.asr import FasterWhisperTranscriber
 from lyrics_editor.align.timeline import align_lyrics_to_transcript
 from lyrics_editor.audio import iter_audio_files, read_metadata
 from lyrics_editor.lrc import lyrics_from_lrc, lyrics_preview, to_lrc
+from lyrics_editor.searching import build_search_track
 from lyrics_editor.providers.catalog import search_candidates
 
 app = typer.Typer(help="本地音乐歌词匹配与时间轴编辑工具。")
@@ -43,9 +44,12 @@ def search(
     limit: int = 10,
     preview_lines: int = 3,
     providers: str | None = None,
+    title: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
 ) -> None:
     """搜索单个本地音频文件的在线歌词。"""
-    track = read_metadata(path)
+    track = build_search_track(read_metadata(path), title=title, artist=artist, album=album)
     try:
         candidates = search_candidates(
             track,
@@ -64,9 +68,12 @@ def match(
     output: Path | None = None,
     limit: int = 10,
     providers: str | None = None,
+    title: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
 ) -> None:
     """搜索最合适的同步歌词并保存为 LRC。"""
-    track = read_metadata(path)
+    track = build_search_track(read_metadata(path), title=title, artist=artist, album=album)
     try:
         candidates = search_candidates(
             track,
@@ -99,9 +106,12 @@ def choose(
     preview_lines: int = 3,
     index: int | None = None,
     providers: str | None = None,
+    title: str | None = None,
+    artist: str | None = None,
+    album: str | None = None,
 ) -> None:
     """预览候选歌词并手动选择一个。"""
-    track = read_metadata(path)
+    track = build_search_track(read_metadata(path), title=title, artist=artist, album=album)
     try:
         candidates = search_candidates(
             track,

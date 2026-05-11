@@ -39,6 +39,12 @@ lyrics-editor inspect "D:\Music\song.mp3"
 lyrics-editor search "D:\Music\song.mp3"
 ```
 
+如果文件标签不准，可以手动覆盖标题、歌手或专辑：
+
+```powershell
+lyrics-editor search "D:\Music\song.mp3" --title "歌曲名" --artist "歌手名"
+```
+
 手动选择候选：
 
 ```powershell
@@ -75,10 +81,11 @@ lyrics-editor gui
 lyrics-editor-gui
 ```
 
+在桌面界面里，右侧“搜索信息”可以直接改标题、歌手、专辑，再点“搜索”或“保存最佳”。这对标签不完整的歌曲特别有用。
+
 ## 路线图
 
 1. 继续扩展歌词源，加入 QQ 音乐、网易云、酷狗等。
 2. 增强逐字歌词和卡拉 OK 导出。
 3. 改进 ASR 与歌词的对齐算法。
 4. 继续完善桌面界面的批量操作与拖拽体验。
-

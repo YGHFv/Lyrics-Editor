@@ -157,3 +157,22 @@ Verification:
 - `python -m ruff check .` passed.
 - `lyrics-editor --help` displayed Chinese help text and command descriptions.
 - `lyrics-editor gui --help` displayed a Chinese command description.
+
+### 2026-05-11 - Improve lyrics search and desktop readability
+
+Improved search success rates for imperfect tags and made the desktop UI easier to read on Windows.
+
+Changed:
+
+- Added manual search overrides for title, artist, and album in CLI search/match/choose commands.
+- Added editable search fields to the desktop UI so users can correct metadata before searching.
+- Expanded LRCLIB lookup with multiple query forms and fallback attempts.
+- Enabled Windows DPI awareness and applied a cleaner Tk/ttk visual style.
+- Added tests for manual search overrides and LRCLIB query fallback.
+- Updated README to explain manual search overrides and the new search fields.
+
+Verification:
+
+- `python -m pytest -q` passed with 12 tests.
+- `python -m ruff check .` passed.
+- `lyrics-editor --help` still showed the Chinese command list.
